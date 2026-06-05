@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ACE Market Dashboard</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d0d0d; color: #fff; padding: 16px; font-size: 13px; }
+      .header { background: #1a1a2e; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+      .header-left { display: flex; align-items: center; gap: 8px; }
+      .header-title { font-size: 16px; font-weight: 500; color: #fff; }
+      .header-right { display: flex; align-items: center; gap: 6px; font-size: 11px; color: rgba(255,255,255,0.5); }
+      .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; display: inline-block; }
+      .section { margin-bottom: 10px; }
+      .section-label { font-size: 10px; font-weight: 500; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+      .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      .tile { background: #1e1e1e; border-radius: 8px; padding: 8px 10px; border: 1.5px solid #333; display: flex; align-items: center; justify-content: space-between; }
+      .tile.up { border-color: #22c55e; }
+      .tile.down { border-color: #ef4444; }
+      .tile-left .ticker { font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 2px; }
+      .tile-left .price { font-size: 14px; font-weight: 500; color: #fff; margin-bottom: 1px; }
+      .tile-left .change { font-size: 11px; }
+      .tile-left .change.up { color: #22c55e; }
+      .tile-left .change.down { color: #ef4444; }
+      .mover-badge { font-size: 9px; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; display: inline-block; }
+      .mover-badge.up { background: #166534; color: #86efac; }
+      .mover-badge.down { background: #7f1d1d; color: #fca5a5; }
+      .news-list { background: #1e1e1e; border-radius: 8px; padding: 10px 12px; }
+      .news-item { padding: 4px 0 4px 8px; border-left: 2px solid #ff4500; border-bottom: 0.5px solid #2a2a2a; margin-bottom: 4px; cursor: pointer; }
+      .news-item:last-child { border-bottom: none; margin-bottom: 0; }
+      .news-item:hover .news-title { color: #ff4500; }
+      .news-title { font-size: 12px; font-weight: 500; color: #fff; margin-bottom: 1px; line-height: 1.3; transition: color 0.2s; }
+      .news-source { font-size: 10px; color: rgba(255,255,255,0.35); }
+      .footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 0.5px solid #2a2a2a; }
+      .footer-left { font-size: 10px; color: rgba(255,255,255,0.3); }
+      .footer-right { font-size: 10px; color: rgba(255,255,255,0.2); }
+      .loading { color: rgba(255,255,255,0.3); font-size: 12px; padding: 8px 0; }
+      .error { color: #ef4444; font-size: 11px; padding: 8px 0; }
+      .no-data { color: rgba(255,255,255,0.3); font-size: 11px; padding: 8px 0; }
+      @media (max-width: 600px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+    </style>
+  </head>
+  <body>
+
+    <div class="header">
+      <div class="header-left">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff4500" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span class="header-title">ACE Market Dashboard</span>
+      </div>
+      <div class="header-right">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="market-status">Loading...</span>
+        <span style="margin-left:6px;color:rgba(255,255,255,0.25)" id="week-label"></span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Market Indices</div>
+      <div class="tiles" id="indices-tiles">
+        <div class="loading">Loading indices...</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Biggest Movers Today</div>
+      <div class="tiles" id="movers-tiles">
+        <div class="loading">Loading movers...</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Market News</div>
+      <div class="news-list" id="news-list">
+        <div class="loading">Loading news...</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span class="footer-left">ACE Market Dashboard • Data updates on every page load</span>
+      <span class="footer-right">Powered by Yahoo Finance</span>
+    </div>
+
+    <script>
+      function getWeekLabel() {
+        const now = new Date();
+        return `Week of ${now.toLocaleString("default", { month: "long" })} ${now.getDate()}, ${now.getFullYear()}`;
+      }
+
+      function isMarketOpen() {
+        const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+        const day = et.getDay();
+        const mins = et.getHours() * 60 + et.getMinutes();
+        return day >= 1 && day <= 5 && mins >= 570 && mins < 960;
+      }
+
+      function drawSparkline(prices, isUp) {
+        if (!prices || prices.length < 2) return `<svg width="52" height="32"></svg>`;
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        const range = max - min || 1;
+        const points = prices.map((p, i) => {
+          const x = ((i / (prices.length - 1)) * 52).toFixed(1);
+          const y = (32 - ((p - min) / range) * 28 - 2).toFixed(1);
+          return `${x},${y}`;
+        }).join(" ");
+        const color = isUp ? "#22c55e" : "#ef4444";
+        return `<svg width="52" height="32" viewBox="0 0 52 32"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+      }
+
+      function renderTile(ticker, price, changePct, isUp, sparkline, badge) {
+        const dir = isUp ? "up" : "down";
+        const spark = drawSparkline(sparkline || [], isUp);
+        return `
+          <div class="tile ${dir}">
+            <div class="tile-left">
+              ${badge ? `<div class="mover-badge ${dir}">${badge}</div>` : ''}
+              <div class="ticker">${ticker}</div>
+              <div class="price">$${price}</div>
+              <div class="change ${dir}">${isUp ? '+' : '-'}${changePct}%</div>
+            </div>
+            ${spark}
+          </div>`;
+      }
+
+      async function init() {
+        document.getElementById("week-label").textContent = getWeekLabel();
+        const open = isMarketOpen();
+        document.getElementById("market-status").textContent = open ? "Markets open" : "Markets closed";
+        document.getElementById("status-dot").style.background = open ? "#22c55e" : "#ef4444";
+
+        try {
+          const res = await fetch("/api/market");
+          const data = await res.json();
+
+          if (data.indices) {
+            document.getElementById("indices-tiles").innerHTML = data.indices.map(q => {
+              if (!q) return `<div class="tile"><div class="tile-left"><div class="error">Error</div></div></div>`;
+              return renderTile(q.ticker, q.price, q.changePct, q.isUp, q.sparkline, null);
+            }).join("");
+          }
+
+          if (data.movers && data.movers.length > 0) {
+            const badges = ["Top gainer", "Gainer", "Loser", "Top loser"];
+            document.getElementById("movers-tiles").innerHTML = data.movers.map((m, i) =>
+              renderTile(m.symbol, m.price, m.changePct, m.isUp, [], badges[i])
+            ).join("");
+          } else {
+            document.getElementById("movers-tiles").innerHTML = `<div class="no-data">No mover data available</div>`;
+          }
+
+          if (data.news && data.news.length > 0) {
+            document.getElementById("news-list").innerHTML = data.news.map(n => `
+              <div class="news-item" onclick="window.open('${n.url}', '_blank')">
+                <div class="news-title">${n.title}</div>
+                <div class="news-source">${n.source}</div>
+              </div>`).join("");
+          } else {
+            document.getElementById("news-list").innerHTML = `<div class="no-data">No news available</div>`;
+          }
+
+        } catch(e) {
+          console.error("Failed to load market data:", e);
+          document.getElementById("indices-tiles").innerHTML = `<div class="error">Failed to load data</div>`;
+          document.getElementById("movers-tiles").innerHTML = `<div class="error">Failed to load data</div>`;
+          document.getElementById("news-list").innerHTML = `<div class="error">Failed to load data</div>`;
+        }
+      }
+
+      init();
+    </script>
+
+  </body>
+</html>
