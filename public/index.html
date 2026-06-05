@@ -15,7 +15,7 @@
       .section { margin-bottom: 10px; }
       .section-label { font-size: 10px; font-weight: 500; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
       .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-      .tile { background: #1e1e1e; border-radius: 8px; padding: 8px 10px; border: 1.5px solid #333; display: flex; align-items: center; justify-content: space-between; }
+      .tile { background: #1e1e1e; border-radius: 8px; padding: 8px 10px; border: 1.5px solid #333; display: flex; align-items: center; justify-content: space-between; min-height: 70px; }
       .tile.up { border-color: #22c55e; }
       .tile.down { border-color: #ef4444; }
       .tile-left .ticker { font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 2px; }
@@ -36,7 +36,7 @@
       .footer-left { font-size: 10px; color: rgba(255,255,255,0.3); }
       .footer-right { font-size: 10px; color: rgba(255,255,255,0.2); }
       .loading { color: rgba(255,255,255,0.3); font-size: 12px; padding: 8px 0; }
-      .error { color: #ef4444; font-size: 11px; padding: 8px 0; }
+      .error { color: #ef4444; font-size: 11px; padding: 4px 6px; }
       .no-data { color: rgba(255,255,255,0.3); font-size: 11px; padding: 8px 0; }
       @media (max-width: 600px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
     </style>
@@ -77,8 +77,8 @@
     </div>
 
     <div class="footer">
-      <span class="footer-left">ACE Market Dashboard • Data updates on every page load</span>
-      <span class="footer-right">Powered by Yahoo Finance</span>
+      <span class="footer-left">ACE Market Dashboard • Data updates every 15 minutes</span>
+      <span class="footer-right">Powered by Alpha Vantage & FMP</span>
     </div>
 
     <script>
@@ -95,7 +95,7 @@
       }
 
       function drawSparkline(prices, isUp) {
-        if (!prices || prices.length < 2) return `<svg width="52" height="32"></svg>`;
+        if (!prices || prices.length < 2) return '';
         const min = Math.min(...prices);
         const max = Math.max(...prices);
         const range = max - min || 1;
@@ -116,59 +116,3 @@
             <div class="tile-left">
               ${badge ? `<div class="mover-badge ${dir}">${badge}</div>` : ''}
               <div class="ticker">${ticker}</div>
-              <div class="price">$${price}</div>
-              <div class="change ${dir}">${isUp ? '+' : '-'}${changePct}%</div>
-            </div>
-            ${spark}
-          </div>`;
-      }
-
-      async function init() {
-        document.getElementById("week-label").textContent = getWeekLabel();
-        const open = isMarketOpen();
-        document.getElementById("market-status").textContent = open ? "Markets open" : "Markets closed";
-        document.getElementById("status-dot").style.background = open ? "#22c55e" : "#ef4444";
-
-        try {
-          const res = await fetch("/api/market");
-          const data = await res.json();
-
-          if (data.indices) {
-            document.getElementById("indices-tiles").innerHTML = data.indices.map(q => {
-              if (!q) return `<div class="tile"><div class="tile-left"><div class="error">Error</div></div></div>`;
-              return renderTile(q.ticker, q.price, q.changePct, q.isUp, q.sparkline, null);
-            }).join("");
-          }
-
-          if (data.movers && data.movers.length > 0) {
-            const badges = ["Top gainer", "Gainer", "Loser", "Top loser"];
-            document.getElementById("movers-tiles").innerHTML = data.movers.map((m, i) =>
-              renderTile(m.symbol, m.price, m.changePct, m.isUp, [], badges[i])
-            ).join("");
-          } else {
-            document.getElementById("movers-tiles").innerHTML = `<div class="no-data">No mover data available</div>`;
-          }
-
-          if (data.news && data.news.length > 0) {
-            document.getElementById("news-list").innerHTML = data.news.map(n => `
-              <div class="news-item" onclick="window.open('${n.url}', '_blank')">
-                <div class="news-title">${n.title}</div>
-                <div class="news-source">${n.source}</div>
-              </div>`).join("");
-          } else {
-            document.getElementById("news-list").innerHTML = `<div class="no-data">No news available</div>`;
-          }
-
-        } catch(e) {
-          console.error("Failed to load market data:", e);
-          document.getElementById("indices-tiles").innerHTML = `<div class="error">Failed to load data</div>`;
-          document.getElementById("movers-tiles").innerHTML = `<div class="error">Failed to load data</div>`;
-          document.getElementById("news-list").innerHTML = `<div class="error">Failed to load data</div>`;
-        }
-      }
-
-      init();
-    </script>
-
-  </body>
-</html>
