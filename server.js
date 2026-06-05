@@ -80,11 +80,21 @@ app.get('/api/market', async (req, res) => {
       } catch { return []; }
     }
 
-    const [indices, movers, news] = await Promise.all([
-      Promise.all(INDICES.map(fetchQuoteAndSparkline)),
-      fetchMovers(),
-      fetchNews()
-    ]);
+    async function fetchIndicesSequentially() {
+  const results = [];
+  for (const ticker of INDICES) {
+    const result = await fetchQuoteAndSparkline(ticker);
+    results.push(result);
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return results;
+}
+
+const [indices, movers, news] = await Promise.all([
+  fetchIndicesSequentially(),
+  fetchMovers(),
+  fetchNews()
+]);
 
     res.json({ indices, movers, news });
 
