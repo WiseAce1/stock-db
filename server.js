@@ -1,104 +1,106 @@
 const express = require('express');
 const fetch = require('node-fetch');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 const AV_KEY = process.env.ALPHA_VANTAGE_KEY;
-const YF_BASE = 'https://query1.finance.yahoo.com';
+const FMP_KEY = process.env.FMP_KEY;
 
 app.use(express.static('public'));
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchQuote(ticker) {
+  try {
+    const res = await fetch(
+      `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${AV_KEY}`
+    );
+    const data = await res.json();
+    const q = data['Global Quote'];
+    if (!q || !q['05. price']) return null;
+    const price = parseFloat(q['05. price']);
+    const change = parseFloat(q['09. change']);
+    const changePct = parseFloat(q['10. change percent']);
+    return {
+      ticker,
+      price: price.toFixed(2),
+      change: change.toFixed(2),
+      changePct: changePct.toFixed(2),
+      isUp: change >= 0,
+      sparkline: []
+    };
+  } catch (e) {
+    console.error(`Error fetching ${ticker}:`, e.message);
+    return null;
+  }
+}
+
+async function fetchMovers() {
+  try {
+    const [gainRes, loseRes] = await Promise.all([
+      fetch(`https://financialmodelingprep.com/stable/biggest-gainers?apikey=${FMP_KEY}`),
+      fetch(`https://financialmodelingprep.com/stable/biggest-losers?apikey=${FMP_KEY}`)
+    ]);
+    const gainers = (await gainRes.json()).filter(s => s.price >= 5).slice(0, 2).map(s => ({
+      symbol: s.symbol,
+      name: s.name,
+      price: parseFloat(s.price).toFixed(2),
+      changePct: Math.abs(s.changesPercentage).toFixed(2),
+      isUp: true
+    }));
+    const losers = (await loseRes.json()).filter(s => s.price >= 5).slice(0, 2).map(s => ({
+      symbol: s.symbol,
+      name: s.name,
+      price: parseFloat(s.price).toFixed(2),
+      changePct: Math.abs(s.changesPercentage).toFixed(2),
+      isUp: false
+    }));
+    return [...gainers, ...losers];
+  } catch (e) {
+    console.error('Error fetching movers:', e.message);
+    return [];
+  }
+}
+
+async function fetchNews() {
+  try {
+    const res = await fetch(
+      `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&topics=financial_markets&limit=5&apikey=${AV_KEY}`
+    );
+    const data = await res.json();
+    return (data.feed || []).slice(0, 5).map(n => ({
+      title: n.title,
+      source: n.source,
+      url: n.url
+    }));
+  } catch (e) {
+    console.error('Error fetching news:', e.message);
+    return [];
+  }
+}
 
 app.get('/api/market', async (req, res) => {
   try {
     const INDICES = ['SPY', 'QQQ', 'DIA', 'IWM'];
+    const indices = [];
 
-    async function fetchQuoteAndSparkline(ticker) {
-      try {
-        const response = await fetch(
-          `${YF_BASE}/v8/finance/chart/${ticker}?interval=30m&range=1d`
-        );
-        const data = await response.json();
-        const result = data?.chart?.result?.[0];
-        if (!result?.meta) return null;
-        const meta = result.meta;
-        const price = meta.regularMarketPrice ?? 0;
-        const prevClose = meta.chartPreviousClose ?? 0;
-        const change = price - prevClose;
-        const changePct = prevClose ? (change / prevClose) * 100 : 0;
-        const closes = result.indicators?.quote?.[0]?.close ?? [];
-        const sparkline = closes.filter(v => v !== null && v !== undefined);
-        return {
-          ticker,
-          price: price.toFixed(2),
-          change: change.toFixed(2),
-          changePct: changePct.toFixed(2),
-          isUp: change >= 0,
-          sparkline
-        };
-      } catch { return null; }
+    for (const ticker of INDICES) {
+      const result = await fetchQuote(ticker);
+      indices.push(result);
+      await sleep(500);
     }
 
-    async function fetchMovers() {
-      try {
-        const [gainRes, loseRes] = await Promise.all([
-          fetch(`${YF_BASE}/v1/finance/screener/predefined/saved?scrIds=day_gainers&count=3`),
-          fetch(`${YF_BASE}/v1/finance/screener/predefined/saved?scrIds=day_losers&count=3`)
-        ]);
-        const gainData = await gainRes.json();
-        const loseData = await loseRes.json();
-        const gainers = (gainData?.finance?.result?.[0]?.quotes ?? []).slice(0, 2).map(q => ({
-          symbol: q.symbol,
-          name: q.shortName,
-          price: q.regularMarketPrice.toFixed(2),
-          changePct: q.regularMarketChangePercent.toFixed(2),
-          isUp: true
-        }));
-        const losers = (loseData?.finance?.result?.[0]?.quotes ?? []).slice(0, 2).map(q => ({
-          symbol: q.symbol,
-          name: q.shortName,
-          price: q.regularMarketPrice.toFixed(2),
-          changePct: Math.abs(q.regularMarketChangePercent).toFixed(2),
-          isUp: false
-        }));
-        return [...gainers, ...losers];
-      } catch { return []; }
-    }
-
-    async function fetchNews() {
-      try {
-        const response = await fetch(
-          `${YF_BASE}/v1/finance/search?q=stock+market&newsCount=5&quotesCount=0`
-        );
-        const data = await response.json();
-        return (data?.news ?? []).slice(0, 5).map(n => ({
-          title: n.title,
-          source: n.publisher,
-          url: n.link
-        }));
-      } catch { return []; }
-    }
-
-    async function fetchIndicesSequentially() {
-  const results = [];
-  for (const ticker of INDICES) {
-    const result = await fetchQuoteAndSparkline(ticker);
-    results.push(result);
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-  return results;
-}
-
-const [indices, movers, news] = await Promise.all([
-  fetchIndicesSequentially(),
-  fetchMovers(),
-  fetchNews()
-]);
+    const [movers, news] = await Promise.all([
+      fetchMovers(),
+      fetchNews()
+    ]);
 
     res.json({ indices, movers, news });
 
   } catch (err) {
+    console.error('Market API error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
